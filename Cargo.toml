@@ -1,0 +1,21 @@
+[package]
+name = "esp32-nostd"
+version = "0.1.0"
+authors = ["Frank Lyaruu <flyaruu@gmail.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+hal = { package = "esp32c3-hal", version = "0.12.0", features=["embassy","async","embassy-time-timg0"] }
+esp-backtrace = { version = "0.8.0", features = ["esp32c3", "panic-handler", "exception-handler", "print-uart"] }
+esp-println = { version = "0.6.0", features = ["esp32c3","log"] }
+log = { version = "0.4.18" }
+esp-alloc = { version = "0.3.0" }
+esp-wifi  = { git = "https://github.com/esp-rs/esp-wifi/", rev = "fbb8417", features = ["esp32c3", "wifi"] }
+smoltcp = { version = "0.10.0", default-features=false, features = ["proto-igmp", "proto-ipv4", "socket-tcp", "socket-icmp", "socket-udp", "medium-ethernet", "proto-dhcpv4", "socket-raw", "socket-dhcpv4"] }
+embedded-svc = { version = "0.25.0", default-features = false, features = [] }
+embedded-io = "0.4.0"
+heapless = { version = "0.7.14", default-features = false }
+embassy-time = "0.1.3"
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev="cd9a65b", features = ["nightly", "integrated-timers"] }
+static_cell = "1.2.0"
