@@ -15,7 +15,7 @@ use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, Delay, IO, 
 use esp_wifi::{initialize, EspWifiInitFor, wifi::{WifiMode, WifiController, WifiState, WifiEvent, WifiDevice}};
 
 use hal::{systimer::SystemTimer, Rng};
-use reqwless::client::HttpClient;
+use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use static_cell::StaticCell;
 
 
@@ -46,7 +46,6 @@ fn init_heap() {
 #[embassy_executor::task]
 async fn blink_green(mut pin: Gpio4<Output<PushPull>>) {
     loop {
-        println!("Loop...");
         pin.toggle().unwrap();
         // delay.delay_ms(500u32);
         Timer::after(Duration::from_millis(200)).await;
@@ -56,7 +55,6 @@ async fn blink_green(mut pin: Gpio4<Output<PushPull>>) {
 #[embassy_executor::task]
 async fn blink_red(mut pin: Gpio3<Output<PushPull>>) {
     loop {
-        println!("Loop...");
         pin.toggle().unwrap();
         // delay.delay_ms(500u32);
         Timer::after(Duration::from_millis(330)).await;
@@ -106,8 +104,9 @@ async fn net_task(stack: &'static Stack<WifiDevice<'static>>) {
 
 #[embassy_executor::task]
 async fn task(stack: &'static Stack<WifiDevice<'static>>) {
-    let mut rx_buffer = [0; 4096];
-    let mut tx_buffer = [0; 4096];
+    let mut rx_buffer = [0; 8192];
+    let mut tls_read_buffer = [0; 8192];
+    let mut tls_write_buffer = [0; 8192];
 
     loop {
         if stack.is_link_up() {
@@ -126,11 +125,12 @@ async fn task(stack: &'static Stack<WifiDevice<'static>>) {
     }
 
     loop {
-        let client_state = TcpClientState::<4,4096,4096>::new();
+        let client_state = TcpClientState::<1,1024,1024>::new();
         let tcp_client = TcpClient::new(&stack, &client_state);
         let dns = DnsSocket::new(&stack);
-        let mut http_client = HttpClient::new(&tcp_client, &dns);
-        let mut request = http_client.request(reqwless::request::Method::GET, "http://10.11.12.112:8000/version").await.unwrap();
+        let tls_config = TlsConfig::new(123456778_u64, &mut tls_read_buffer, &mut tls_write_buffer, TlsVerify::None);
+        let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns, tls_config);
+        let mut request = http_client.request(reqwless::request::Method::GET, "https://google.com").await.unwrap();
 
         let response = request.send(&mut rx_buffer).await.unwrap();
         println!("Http result: {:?}",response.status);
