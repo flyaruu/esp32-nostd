@@ -1,10 +1,11 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![feature(async_fn_in_trait)]
 
 extern crate alloc;
 use core::{mem::MaybeUninit, str::from_utf8};
-use embassy_executor::Executor;
+use embassy_executor::{Spawner, Executor};
 use embassy_net::{Config, Stack, StackResources, tcp::client::{TcpClient, TcpClientState}, dns::DnsSocket};
 use embassy_time::{Timer, Duration};
 use embedded_svc::wifi::{Configuration, ClientConfiguration, Wifi};
@@ -13,23 +14,23 @@ use esp_println::println;
 use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, Delay, IO, timer::TimerGroup, embassy, gpio::{Output, PushPull, Gpio4, Gpio3}};
 
 use esp_wifi::{initialize, EspWifiInitFor, wifi::{WifiMode, WifiController, WifiState, WifiEvent, WifiDevice}};
-
 use hal::{systimer::SystemTimer, Rng};
-use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use static_cell::StaticCell;
-
+use picoserve::routing::{NoPathParameters, NotFound};
+use static_cell::make_static;
+const WEB_TASK_POOL_SIZE: usize = 8;
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
 
-macro_rules! singleton {
-    ($val:expr) => {{
-        type T = impl Sized;
-        static STATIC_CELL: StaticCell<T> = StaticCell::new();
-        let (x,) = STATIC_CELL.init(($val,));
-        x
-    }};
-}
+// macro_rules! singleton {
+//     ($val:expr) => {{
+//         type T = impl Sized;
+//         static STATIC_CELL: StaticCell<T> = StaticCell::new();
+//         let (x,) = STATIC_CELL.init(($val,));
+//         x
+//     }};
+// }
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -102,56 +103,106 @@ async fn net_task(stack: &'static Stack<WifiDevice<'static>>) {
     stack.run().await
 }
 
+#[derive(Clone, Copy)]
+struct AppState;
+
+
+use picoserve::{
+    response::DebugValue,
+    routing::{get, parse_path_segment, PathRouter}, extract::State, Router,
+};
+
+struct EmbassyTimer;
+
+impl picoserve::Timer for EmbassyTimer {
+    type Duration = embassy_time::Duration;
+    type TimeoutError = embassy_time::TimeoutError;
+
+    async fn run_with_timeout<F: core::future::Future>(
+        &mut self,
+        duration: Self::Duration,
+        future: F,
+    ) -> Result<F::Output, Self::TimeoutError> {
+        embassy_time::with_timeout(duration, future).await
+    }
+}
+
+
+
+// type AppRouter = impl picoserve::routing::PathRouter<AppState>;
+
 #[embassy_executor::task]
-async fn task(stack: &'static Stack<WifiDevice<'static>>) {
-    let mut rx_buffer = [0; 8192];
-    let mut tls_read_buffer = [0; 8192];
-    let mut tls_write_buffer = [0; 8192];
+async fn web_task(
+    id: usize,
+    stack: &'static Stack<WifiDevice<'static>>,
+    // app: &'static picoserve::Router<AppRouter, AppState>,
+    config: &'static picoserve::Config<Duration>,
+    state: &'static AppState,
+) -> ! {
+    let mut rx_buffer = [0; 1024];
+    let mut tx_buffer = [0; 1024];
 
     loop {
-        if stack.is_link_up() {
-            break;
+        let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+
+        log::info!("{id}: Listening on TCP:80...");
+        if let Err(e) = socket.accept(80).await {
+            log::warn!("{id}: accept error: {:?}", e);
+            continue;
         }
-        Timer::after(Duration::from_millis(500)).await;
-    }
 
-    println!("Waiting to get IP address...");
-    loop {
-        if let Some(config) = stack.config_v4() {
-            println!("Got IP: {}", config.address);
-            break;
+        log::info!(
+            "{id}: Received connection from {:?}",
+            socket.remote_endpoint()
+        );
+
+        // let l: picoserve::io::Read;
+
+        let (socket_rx, socket_tx) = socket.split();
+
+        // let buf = [0_u8; 10];
+        // let ll = socket_rx.read(&mut buf).await;
+
+        // let app: picoserve::Router<AppRouter, AppState> = picoserve::Router::new()
+        //         .route("/", get(|| async move { "root"}));
+
+        let app: &mut Router<_,(),NoPathParameters> = make_static!(picoserve::Router::new()
+            .route("/", get(|| async { "Hello World" })));
+
+      
+        // let app: &mut picoserve::Router<_,AppRouter> = make_static!(Router::new()
+        // .route("/", get(|| async move { "Hello World" })));
+
+        // picoserve::serve(app, timer, config, buffer, reader, writer)
+        let pico = picoserve::serve(
+            app,
+            EmbassyTimer,
+            config,
+            &mut [0; 2048],
+            socket_rx,
+            socket_tx,
+        ).await;
+        match pico
+        {
+            Ok(handled_requests_count) => {
+                log::info!(
+                    "{handled_requests_count} requests handled from {:?}",
+                    socket.remote_endpoint()
+                );
+            }
+            Err(err) => log::error!("{err:?}"),
         }
-        Timer::after(Duration::from_millis(500)).await;
-    }
-
-    loop {
-        let client_state = TcpClientState::<1,1024,1024>::new();
-        let tcp_client = TcpClient::new(&stack, &client_state);
-        let dns = DnsSocket::new(&stack);
-        let tls_config = TlsConfig::new(123456778_u64, &mut tls_read_buffer, &mut tls_write_buffer, TlsVerify::None);
-        let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns, tls_config);
-        let mut request = http_client.request(reqwless::request::Method::GET, "https://google.com").await.unwrap();
-
-        let response = request.send(&mut rx_buffer).await.unwrap();
-        println!("Http result: {:?}",response.status);
-
-        let body = from_utf8(response.body().read_to_end().await.unwrap()).unwrap();
-        println!("Http body: {}",body);
-
-        Timer::after(Duration::from_millis(3000)).await;
     }
 }
 
 #[entry]
-fn main() -> ! {
+fn main()->! {
     init_heap();
     let peripherals = Peripherals::take();
     let mut system = peripherals.SYSTEM.split();
     let clocks = ClockControl::max(system.clock_control).freeze();
     // let mut delay = Delay::new(&clocks);
-
-    static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-
+    // embassy_executor
     // setup logger
     // To change the log_level change the env section in .cargo/config.toml
     // or remove it and set ESP_LOGLEVEL manually before running cargo run
@@ -163,8 +214,8 @@ fn main() -> ! {
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
     let pin3 = io.pins.gpio3.into_push_pull_output();
     let pin4 = io.pins.gpio4.into_push_pull_output();
-
-    let executor = EXECUTOR.init(Executor::new());
+    // let l = Executor::n
+    // let executor = EXECUTOR.init(embassy_executor::raw::());
     
     let timer_group = TimerGroup::new(peripherals.TIMG0, &clocks, &mut system.peripheral_clock_control);    
 
@@ -188,25 +239,52 @@ fn main() -> ! {
     let seed = 1234; // very random, very secure seed
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(
+    let stack = &*make_static!(Stack::new(
         wifi_interface,
         config,
-        singleton!(StackResources::<3>::new()),
+        make_static!(StackResources::<3>::new()),
         seed
     ));
+    
+    // let app: Router<_,(),NoPathParameters> =
+    //     picoserve::Router::new().route("/", get(|| async { "Hello World" }));
+
+
+    // let aaa: Router<PathRouter> = picoserve::Router::new()
+    // .route("/", get(|| async move { "Hello World" }));
+
+    // let app = &*singleton!(picoserve::Router::new()
+    //     .route("/", get(|| async move { "Hello World" }))
+    //     .route(
+    //         ("/set", parse_path_segment()),
+    //         get(
+    //             |led_is_on, State(SharedControl(control)): State::<SharedControl>| async move {
+    //                 control.lock().await.gpio_set(0, led_is_on).await;
+    //                 DebugValue(led_is_on)
+    //             }
+    //         )
+    //     ));
+
+    let executor = make_static!(Executor::new());
+
+    
+
+    let app: &mut Router<_,(),NoPathParameters> = make_static!(picoserve::Router::new()
+        .route("/", get(|| async move { "Hello World" })
+    ));
+
+    let config = &*make_static!(picoserve::Config {
+        start_read_request_timeout: Some(Duration::from_secs(5)),
+        read_request_timeout: Some(Duration::from_secs(1)),
+    });
 
     embassy::init(&clocks,timer_group.timer0);
-
     executor.run(|spawner| {
         spawner.spawn(blink_green(pin4)).unwrap();
         spawner.spawn(blink_red(pin3)).unwrap();
         spawner.spawn(connection(controller)).unwrap();
         spawner.spawn(net_task(stack)).unwrap();
-        spawner.spawn(task(&stack)).unwrap();
-    });
-
-
-   
-
-
+        // spawner.spawn(task(&stack)).unwrap();
+        spawner.spawn(web_task(1,&stack,&config, &AppState{} )).unwrap();
+    })
 }
