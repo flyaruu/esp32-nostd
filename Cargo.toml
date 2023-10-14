@@ -22,5 +22,6 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy", rev="03576b9" }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev="03576b9", features = [ "nightly", "integrated-timers", "executor-thread","arch-riscv32"] }
 embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "03576b9",  features = ["dhcpv4", "dns", "log", "medium-ethernet", "medium-ip", "nightly", "tcp", "udp","proto-ipv4"] }
 embassy-net-driver = { git = "https://github.com/embassy-rs/embassy", rev = "03576b9" }
+reqwless = { version = "0.7.0", features = ["alloc"] }
 #riscv-rt = "0.11.0"
 #riscv-rt-macros = "0.2.0"

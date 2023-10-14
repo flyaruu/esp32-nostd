@@ -5,18 +5,18 @@
 
 extern crate alloc;
 use core::{mem::MaybeUninit, str::from_utf8};
-use embassy_executor::{Spawner, Executor};
+use embassy_executor::Executor;
 use embassy_net::{Config, Stack, StackResources, tcp::client::{TcpClient, TcpClientState}, dns::DnsSocket};
 use embassy_time::{Timer, Duration};
 use embedded_svc::wifi::{Configuration, ClientConfiguration, Wifi};
 use esp_backtrace as _;
 use esp_println::println;
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, Delay, IO, timer::TimerGroup, embassy, gpio::{Output, PushPull, Gpio4, Gpio3}};
+use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, gpio::{Output, PushPull, Gpio4, Gpio3}};
 
 use esp_wifi::{initialize, EspWifiInitFor, wifi::{WifiMode, WifiController, WifiState, WifiEvent, WifiDevice}};
 use hal::{systimer::SystemTimer, Rng};
-use static_cell::StaticCell;
-use picoserve::routing::{NoPathParameters, NotFound};
+use reqwless::client::{TlsConfig, HttpClient, TlsVerify};
+use picoserve::{routing::{NoPathParameters, get}, Router};
 use static_cell::make_static;
 const WEB_TASK_POOL_SIZE: usize = 8;
 
@@ -106,12 +106,6 @@ async fn net_task(stack: &'static Stack<WifiDevice<'static>>) {
 #[derive(Clone, Copy)]
 struct AppState;
 
-
-use picoserve::{
-    response::DebugValue,
-    routing::{get, parse_path_segment, PathRouter}, extract::State, Router,
-};
-
 struct EmbassyTimer;
 
 impl picoserve::Timer for EmbassyTimer {
@@ -129,7 +123,46 @@ impl picoserve::Timer for EmbassyTimer {
 
 
 
-// type AppRouter = impl picoserve::routing::PathRouter<AppState>;
+#[embassy_executor::task]
+async fn task(stack: &'static Stack<WifiDevice<'static>>) {
+    let mut rx_buffer = [0; 8192];
+    let mut tls_read_buffer = [0; 8192];
+    let mut tls_write_buffer = [0; 8192];
+
+    loop {
+        if stack.is_link_up() {
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
+    println!("Waiting to get IP address...");
+    loop {
+        if let Some(config) = stack.config_v4() {
+            println!("Got IP: {}", config.address);
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
+    loop {
+        let client_state = TcpClientState::<1,1024,1024>::new();
+        let tcp_client = TcpClient::new(&stack, &client_state);
+        let dns = DnsSocket::new(&stack);
+        let tls_config = TlsConfig::new(123456778_u64, &mut tls_read_buffer, &mut tls_write_buffer, TlsVerify::None);
+        let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns, tls_config);
+        let mut request = http_client.request(reqwless::request::Method::GET, "https://google.com").await.unwrap();
+
+        let response = request.send(&mut rx_buffer).await.unwrap();
+        println!("Http result: {:?}",response.status);
+
+        let body = from_utf8(response.body().read_to_end().await.unwrap()).unwrap();
+        println!("Http body: {}",body);
+
+        Timer::after(Duration::from_millis(3000)).await;
+    }
+}
+
 
 #[embassy_executor::task]
 async fn web_task(
@@ -269,9 +302,9 @@ fn main()->! {
 
     
 
-    let app: &mut Router<_,(),NoPathParameters> = make_static!(picoserve::Router::new()
-        .route("/", get(|| async move { "Hello World" })
-    ));
+    // let app: &mut Router<_,(),NoPathParameters> = make_static!(picoserve::Router::new()
+    //     .route("/", get(|| async move { "Hello World" })
+    // ));
 
     let config = &*make_static!(picoserve::Config {
         start_read_request_timeout: Some(Duration::from_secs(5)),
@@ -284,7 +317,7 @@ fn main()->! {
         spawner.spawn(blink_red(pin3)).unwrap();
         spawner.spawn(connection(controller)).unwrap();
         spawner.spawn(net_task(stack)).unwrap();
-        // spawner.spawn(task(&stack)).unwrap();
+        spawner.spawn(task(&stack)).unwrap();
         spawner.spawn(web_task(1,&stack,&config, &AppState{} )).unwrap();
     })
 }
