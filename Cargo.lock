@@ -176,6 +176,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "branches"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7958fb9748a08a6f46ef773e87c43997a844709bc293b4c3de48135debaf9d2a"
+
+[[package]]
 name = "buffered-io"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -373,6 +379,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e5367165d347c039360f784812f493b001583ab6a3dd8622f4ce9c30374ec3"
 
 [[package]]
+name = "embassy-futures"
+version = "0.1.0"
+source = "git+https://github.com/embassy-rs/embassy?rev=03576b9#03576b9e83a33466e839dabb8db4ca574654a0ff"
+
+[[package]]
 name = "embassy-macros"
 version = "0.2.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=03576b9#03576b9e83a33466e839dabb8db4ca574654a0ff"
@@ -427,6 +438,18 @@ dependencies = [
 name = "embassy-sync"
 version = "0.2.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=03576b9#03576b9e83a33466e839dabb8db4ca574654a0ff"
+dependencies = [
+ "cfg-if",
+ "critical-section",
+ "futures-util",
+ "heapless 0.7.16",
+]
+
+[[package]]
+name = "embassy-sync"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0525b466ca3ace30b57f2db868a35215dfaecd038d8668cb2db03feb7c069a0"
 dependencies = [
  "cfg-if",
  "critical-section",
@@ -664,7 +687,7 @@ dependencies = [
  "bitflags 2.4.0",
  "cfg-if",
  "critical-section",
- "embassy-futures",
+ "embassy-futures 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "embassy-sync 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "embassy-time 0.1.3",
  "embedded-can",
@@ -747,13 +770,14 @@ dependencies = [
 [[package]]
 name = "esp-wifi"
 version = "0.1.0"
+source = "git+https://github.com/flyaruu/esp-wifi?rev=d546451f3f832edb11cc19d244d0298085973664#d546451f3f832edb11cc19d244d0298085973664"
 dependencies = [
  "atomic-polyfill 1.0.3",
  "cfg-if",
  "critical-section",
- "embassy-futures",
+ "embassy-futures 0.1.0 (git+https://github.com/embassy-rs/embassy?rev=03576b9)",
  "embassy-net-driver",
- "embassy-sync 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "embassy-sync 0.2.0 (git+https://github.com/embassy-rs/embassy?rev=03576b9)",
  "embedded-io 0.4.0",
  "embedded-svc",
  "enumset",
@@ -778,6 +802,7 @@ dependencies = [
 [[package]]
 name = "esp-wifi-sys"
 version = "0.1.0"
+source = "git+https://github.com/flyaruu/esp-wifi?rev=d546451f3f832edb11cc19d244d0298085973664#d546451f3f832edb11cc19d244d0298085973664"
 dependencies = [
  "anyhow",
 ]
@@ -809,6 +834,7 @@ dependencies = [
  "embassy-executor",
  "embassy-net",
  "embassy-net-driver",
+ "embassy-sync 0.3.0",
  "embassy-time 0.1.2",
  "embedded-io 0.4.0",
  "embedded-svc",
@@ -820,6 +846,7 @@ dependencies = [
  "heapless 0.7.16",
  "log",
  "picoserve",
+ "rclite",
  "reqwless",
  "smoltcp",
  "static_cell",
@@ -1466,6 +1493,15 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+
+[[package]]
+name = "rclite"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee9f0c2e8b8ef3ea8b0d074b9a0a192d99d47e2023bec8fd6336f2d8543a43b9"
+dependencies = [
+ "branches",
+]
 
 [[package]]
 name = "regex"

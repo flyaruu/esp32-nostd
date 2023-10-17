@@ -4,9 +4,11 @@
 #![feature(async_fn_in_trait)]
 
 extern crate alloc;
-use core::{mem::MaybeUninit, str::from_utf8};
+use core::{mem::MaybeUninit, str::from_utf8, ops::Add};
+use alloc::format;
 use embassy_executor::Executor;
 use embassy_net::{Config, Stack, StackResources, tcp::client::{TcpClient, TcpClientState}, dns::DnsSocket};
+use embassy_sync::{channel::Channel, mutex::Mutex, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::{Timer, Duration};
 use embedded_svc::wifi::{Configuration, ClientConfiguration, Wifi};
 use esp_backtrace as _;
@@ -16,12 +18,13 @@ use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::
 use esp_wifi::{initialize, EspWifiInitFor, wifi::{WifiMode, WifiController, WifiState, WifiEvent, WifiDevice}};
 use hal::{systimer::SystemTimer, Rng};
 use reqwless::client::{TlsConfig, HttpClient, TlsVerify};
-use picoserve::{routing::{NoPathParameters, get}, Router};
+use picoserve::{routing::{NoPathParameters, get, post, ParsePathSegment}, Router, extract::State, response::{IntoResponse, Response, StatusCode}};
 use static_cell::make_static;
 const WEB_TASK_POOL_SIZE: usize = 8;
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
+
 
 // macro_rules! singleton {
 //     ($val:expr) => {{
@@ -49,7 +52,7 @@ async fn blink_green(mut pin: Gpio4<Output<PushPull>>) {
     loop {
         pin.toggle().unwrap();
         // delay.delay_ms(500u32);
-        Timer::after(Duration::from_millis(200)).await;
+        Timer::after(Duration::from_millis(2000)).await;
     }
 }
 
@@ -58,7 +61,7 @@ async fn blink_red(mut pin: Gpio3<Output<PushPull>>) {
     loop {
         pin.toggle().unwrap();
         // delay.delay_ms(500u32);
-        Timer::after(Duration::from_millis(330)).await;
+        Timer::after(Duration::from_millis(4000)).await;
     }
 }
 
@@ -103,8 +106,10 @@ async fn net_task(stack: &'static Stack<WifiDevice<'static>>) {
     stack.run().await
 }
 
-#[derive(Clone, Copy)]
-struct AppState;
+#[derive(Clone)]
+struct AppState {
+    counter: i64
+}
 
 struct EmbassyTimer;
 
@@ -172,12 +177,35 @@ async fn web_task(
     config: &'static picoserve::Config<Duration>,
     state: &'static AppState,
 ) -> ! {
+
+
+    loop {
+        if stack.is_link_up() {
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
+    println!("Waiting to get IP address...");
+    loop {
+        if let Some(config) = stack.config_v4() {
+            println!("Got IP: {}", config.address);
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
     let mut rx_buffer = [0; 1024];
     let mut tx_buffer = [0; 1024];
 
-    loop {
-        let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let app = picoserve::Router::new()
+        .route("/", get(get_counter))
+        .route("/increment", post(increment_counter))
+        ;
 
+    loop {
+
+        let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         log::info!("{id}: Listening on TCP:80...");
         if let Err(e) = socket.accept(80).await {
             log::warn!("{id}: accept error: {:?}", e);
@@ -189,31 +217,18 @@ async fn web_task(
             socket.remote_endpoint()
         );
 
-        // let l: picoserve::io::Read;
+
+
 
         let (socket_rx, socket_tx) = socket.split();
-
-        // let buf = [0_u8; 10];
-        // let ll = socket_rx.read(&mut buf).await;
-
-        // let app: picoserve::Router<AppRouter, AppState> = picoserve::Router::new()
-        //         .route("/", get(|| async move { "root"}));
-
-        let app: &mut Router<_,(),NoPathParameters> = make_static!(picoserve::Router::new()
-            .route("/", get(|| async { "Hello World" })));
-
-      
-        // let app: &mut picoserve::Router<_,AppRouter> = make_static!(Router::new()
-        // .route("/", get(|| async move { "Hello World" })));
-
-        // picoserve::serve(app, timer, config, buffer, reader, writer)
-        let pico = picoserve::serve(
-            app,
-            EmbassyTimer,
-            config,
-            &mut [0; 2048],
-            socket_rx,
-            socket_tx,
+        let pico = picoserve::serve_with_state(
+                &app,
+                EmbassyTimer,
+                config,
+                &mut [0; 2048],
+                socket_rx,
+                socket_tx,
+                state,
         ).await;
         match pico
         {
@@ -226,6 +241,26 @@ async fn web_task(
             Err(err) => log::error!("{err:?}"),
         }
     }
+}
+
+async fn get_counter(State( state): State<AppState>) -> impl IntoResponse {
+    let formatted = format!("Count: {}",state.counter);
+    let response: heapless::String<20> = formatted.as_str().into();
+    response
+
+}
+
+async fn increment_counter(State(mut state): State<AppState>) -> impl IntoResponse {
+    // let counter = state.counter;
+    // state.counter += 1;
+    // counter.add(1);
+    // *state.counter+=1;
+    // picoserve::response::StatusCode::new(200)
+    "ok"
+}
+
+async fn other(path: ParsePathSegment<&str>) -> impl IntoResponse {
+    "ok"
 }
 
 #[entry]
@@ -311,13 +346,20 @@ fn main()->! {
         read_request_timeout: Some(Duration::from_secs(1)),
     });
 
+    let channel: Channel<NoopRawMutex,i64,2> = Channel::new();
+
+    let l = channel.receiver();
+    let l3 = channel.receiver();
+
+    let state = make_static!(AppState{ counter: 0_i64});
+
     embassy::init(&clocks,timer_group.timer0);
     executor.run(|spawner| {
         spawner.spawn(blink_green(pin4)).unwrap();
         spawner.spawn(blink_red(pin3)).unwrap();
         spawner.spawn(connection(controller)).unwrap();
         spawner.spawn(net_task(stack)).unwrap();
-        spawner.spawn(task(&stack)).unwrap();
-        spawner.spawn(web_task(1,&stack,&config, &AppState{} )).unwrap();
+        // spawner.spawn(task(&stack)).unwrap();
+        spawner.spawn(web_task(1,&stack,&config, state)).unwrap();
     })
 }
