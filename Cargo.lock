@@ -354,13 +354,14 @@ dependencies = [
 
 [[package]]
 name = "embassy-executor"
-version = "0.2.1"
-source = "git+https://github.com/embassy-rs/embassy?rev=03576b9#03576b9e83a33466e839dabb8db4ca574654a0ff"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5973734cc21e60f04f66e2d7b03b9140e91cf2bb5f33e79b586bb953e11a5f81"
 dependencies = [
  "atomic-polyfill 1.0.3",
  "critical-section",
  "embassy-macros",
- "embassy-time 0.1.2",
+ "embassy-time 0.1.5",
  "futures-util",
  "static_cell",
 ]
@@ -378,8 +379,9 @@ source = "git+https://github.com/embassy-rs/embassy?rev=03576b9#03576b9e83a33466
 
 [[package]]
 name = "embassy-macros"
-version = "0.2.0"
-source = "git+https://github.com/embassy-rs/embassy?rev=03576b9#03576b9e83a33466e839dabb8db4ca574654a0ff"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94d3eef431adfc517df1601e367f72b1c28a51c6eb91def7dc297be7fc8789a4"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -453,11 +455,10 @@ dependencies = [
 
 [[package]]
 name = "embassy-time"
-version = "0.1.3"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a9532d29ec2949c49079d85fd77422e3f4cdc133a71674743cd3b8d5a56a20"
+checksum = "03bcc866a1d3c678da6fa1d28f655a074840b6122123975e156cfca7f1ccc78a"
 dependencies = [
- "atomic-polyfill 1.0.3",
  "cfg-if",
  "critical-section",
  "embedded-hal 0.2.7",
@@ -692,7 +693,7 @@ dependencies = [
  "critical-section",
  "embassy-futures 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "embassy-sync 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "embassy-time 0.1.3",
+ "embassy-time 0.1.5",
  "embedded-can",
  "embedded-dma",
  "embedded-hal 0.2.7",
@@ -837,7 +838,7 @@ dependencies = [
  "embassy-executor",
  "embassy-net",
  "embassy-net-driver",
- "embassy-time 0.1.3",
+ "embassy-time 0.1.5",
  "embedded-io 0.4.0",
  "embedded-svc",
  "esp-alloc",
@@ -889,7 +890,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98501cfeea3081911074cde8074533b2939e46bd3630b1cd3e89563d58148a00"
 dependencies = [
  "cfg-if",
- "embassy-time 0.1.3",
+ "embassy-time 0.1.5",
  "esp-hal-common",
 ]
 
